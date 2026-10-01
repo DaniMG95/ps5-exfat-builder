@@ -45,6 +45,22 @@ from ui.shared.page_head import (
     make_themed_button, info_banner, page_head, field_block)
 from ui.shared.hero import GameHero
 from ui.shared.scroll import attach_scroll
+from ps5_exfat_builder.domain import TransformRequest
+from ps5_exfat_builder.formats.ampr import ExfatToAmprConverter, FolderToAmprConverter
+from ps5_exfat_builder.integrations.ampr import discover_profiles, find_tool
+from ps5_exfat_builder.integrations.osfmount import (
+    OsfDismountCommand,
+    OsfMountImageCommand,
+)
+from ps5_exfat_builder.integrations.ufs2tool import extract_args, newfs_args
+from ps5_exfat_builder.integrations.windows_volume import (
+    format_exfat_args,
+    robocopy_tree_args,
+)
+from ps5_exfat_builder.services.file_inventory import (
+    estimate_exfat_image_size,
+    scan_file_inventory,
+)
 
 
 # v3.6.x: OSFMount attach timeout for the exFAT → ffpkg convert. A healthy
@@ -532,12 +548,13 @@ def build_convert_tab(parent, app):
                         app._dismount_drive_robust(letter,
                                                     max_wait_seconds=20)
                     else:
-                        _run([osfmount, '-d', '-m', mount_letter])
+                        _run(OsfDismountCommand(
+                            osfmount, mount_letter).argv())
                 except Exception as e:
                     _log('Cleanup dismount error: ' + str(e))
 
-            mount_cmd = [osfmount, '-a', '-t', 'file', '-f', src,
-                         '-m', mount_letter, '-o', 'rw']
+            mount_cmd = OsfMountImageCommand(
+                osfmount, src, mount_letter, read_only=False).argv()
             # v3.6.x: bounded mount so a hung OSFMount attach fails cleanly
             # instead of sitting at "Preparing... 0%". Uses the timeout helper
             # (NOT the streaming `_run`, which the newfs progress path needs).
@@ -580,13 +597,7 @@ def build_convert_tab(parent, app):
                 parent.after(0, prog.set_stage, 'newfs',
                     'Building .ffpkg with UFS2Tool newfs...')
                 _log('UFS2Tool newfs against mount...')
-                newfs_cmd = [ufs2, 'newfs',
-                             '-O', '2',
-                             '-b', '32768',
-                             '-f', '4096',
-                             '-S', '512',
-                             '-D', mount_letter + '\\',
-                             out_path]
+                newfs_cmd = newfs_args(ufs2, mount_letter + '\\', out_path)
 
                 # Parse newfs output for progress. Two sub-phases:
                 # "Writing cylinder groups... NN%" and then
@@ -668,7 +679,8 @@ def build_convert_tab(parent, app):
                         app._dismount_drive_robust(letter,
                                                     max_wait_seconds=20)
                     else:
-                        _run([osfmount, '-d', '-m', mount_letter])
+                        _run(OsfDismountCommand(
+                            osfmount, mount_letter).argv())
                 except Exception as e:
                     _log('Dismount error: ' + str(e))
                 parent.after(0, prog.set_stage_progress, 100.0)
@@ -954,11 +966,11 @@ def build_convert_tab(parent, app):
                     if 'too large to read into memory' in line.lower():
                         extract_state['too_large'] = True
 
-                rc = _run([ufs2, 'extract', src, dump_dir],
+                rc = _run(extract_args(ufs2, src, dump_dir),
                           'UFS2Tool extract', progress_cb=_extract_watch)
                 if rc != 0:
                     # Try the explicit '/' form for older UFS2Tool.
-                    rc = _run([ufs2, 'extract', src, dump_dir, '/'],
+                    rc = _run(extract_args(ufs2, src, dump_dir, root='/'),
                               'UFS2Tool extract (retry with /)',
                               progress_cb=_extract_watch)
 
@@ -1052,16 +1064,9 @@ def build_convert_tab(parent, app):
                                 % summary.get('rc')))
 
                 # Count files + total size for the next step.
-                total_bytes = 0
-                file_count  = 0
-                for r, ds, fs in os.walk(dump_dir):
-                    for f in fs:
-                        try:
-                            total_bytes += os.path.getsize(
-                                os.path.join(r, f))
-                            file_count += 1
-                        except Exception:
-                            pass
+                inventory = scan_file_inventory(dump_dir)
+                total_bytes = inventory.total_bytes
+                file_count = inventory.file_count
                 if file_count == 0:
                     raise RuntimeError(
                         'Extraction produced no files. '
@@ -1080,11 +1085,7 @@ def build_convert_tab(parent, app):
                 # next 64 MB. The 10% headroom covers exFAT cluster
                 # waste and directory metadata; 64 MB alignment keeps
                 # OSFMount happy (it dislikes oddly-sized images).
-                target_size = int(total_bytes * 1.10)
-                ALIGN = 64 * 1024 * 1024
-                target_size = ((target_size + ALIGN - 1) // ALIGN) * ALIGN
-                if target_size < ALIGN:
-                    target_size = ALIGN
+                target_size = estimate_exfat_image_size(total_bytes)
 
                 parent.after(0, prog.set_stage_progress, 10.0,
                     'Allocating image (%.2f GB)...'
@@ -1117,10 +1118,9 @@ def build_convert_tab(parent, app):
                 # OSFMount attach of the destination image fails cleanly instead
                 # of stalling. Timeout/failure both raise → handled by the
                 # existing finally (dismount) + outer except (dialog).
-                rc = _run_with_timeout([osfmount, '-a', '-t', 'file',
-                                        '-f', out_path,
-                                        '-m', mount_letter, '-o', 'rw'],
-                                       _MOUNT_TIMEOUT_S)
+                rc = _run_with_timeout(OsfMountImageCommand(
+                    osfmount, out_path, mount_letter,
+                    read_only=False).argv(), _MOUNT_TIMEOUT_S)
                 if rc == -2:
                     raise RuntimeError(
                         'OSFMount didn\'t finish attaching the destination '
@@ -1145,9 +1145,7 @@ def build_convert_tab(parent, app):
                     parent.after(0, prog.set_stage_progress, 60.0,
                         'Formatting %s as exFAT...' % mount_letter)
                     _log('Formatting %s as exFAT...' % mount_letter)
-                    fmt_cmd = ['cmd.exe', '/c', 'format',
-                               mount_letter, '/FS:exFAT', '/Q', '/Y',
-                               '/V:']
+                    fmt_cmd = format_exfat_args(mount_letter)
                     _log('Running: ' + ' '.join(fmt_cmd))
                     try:
                         CREATE_NO_WINDOW = 0x08000000
@@ -1210,12 +1208,7 @@ def build_convert_tab(parent, app):
                             parent.after(0,
                                 prog.set_stage_progress, pct, detail)
 
-                    robo_cmd = [
-                        'robocopy.exe',
-                        dump_dir, mount_letter + '\\',
-                        '/E', '/COPY:DAT', '/DCOPY:DAT',
-                        '/R:1', '/W:1', '/NP', '/ETA',
-                    ]
+                    robo_cmd = robocopy_tree_args(dump_dir, mount_letter + '\\')
                     rc = _run(robo_cmd, 'robocopy',
                               progress_cb=_robo_cb)
                     if rc >= 8:
@@ -1235,7 +1228,8 @@ def build_convert_tab(parent, app):
                             app._dismount_drive_robust(letter,
                                 max_wait_seconds=20)
                         else:
-                            _run([osfmount, '-d', '-m', mount_letter])
+                            _run(OsfDismountCommand(
+                                osfmount, mount_letter).argv())
                     except Exception as e:
                         _log('Dismount error: ' + str(e))
                     parent.after(0, prog.set_stage_progress, 100.0)

@@ -6,7 +6,7 @@ Game Images**
 Build • Edit • Convert • Backport • Deploy
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-blue)
-![Python](https://img.shields.io/badge/Python-3.11-yellow)
+![Python](https://img.shields.io/badge/Python-3.14-yellow)
 ![License](https://img.shields.io/github/license/kerrdec97/ps5-exfat-builder)
 ![Release](https://img.shields.io/github/v/release/kerrdec97/ps5-exfat-builder)
 ![Downloads](https://img.shields.io/github/downloads/kerrdec97/ps5-exfat-builder/total)
@@ -98,12 +98,65 @@ Supports **17 interface languages**, maintained by the community.
 
 # ⚡ Quick Start
 
-1.  Install Windows 10/11, OSFMount and (.NET 8 for FFPKG).
-2.  Open the **Build** tab.
-3.  Select your PS5 game dump.
-4.  Choose **exFAT**, **FFPKG** or **FFPFSC**.
-5.  Click **Add to Queue** then **Build All**.
-6.  Wait for Scan → Build → Copy → Verify to complete.
+1.  Install Windows 10/11, Python 3.14, uv, OSFMount and (.NET 8 for FFPKG).
+2.  Sync the project environment:
+
+    ```powershell
+    uv sync
+    ```
+
+3.  Run the application:
+
+    ```powershell
+    uv run python exfat_builder.py
+    ```
+
+4.  Open the **Build** tab.
+5.  Select your PS5 game dump.
+6.  Choose **exFAT**, **FFPKG** or **FFPFSC**.
+7.  Click **Add to Queue** then **Build All**.
+8.  Wait for Scan → Build → Copy → Verify to complete.
+
+------------------------------------------------------------------------
+
+# Developer Setup
+
+This repository is configured for **Python 3.14** and **uv**.
+
+Create or refresh the local environment:
+
+```powershell
+uv sync
+```
+
+Run the GUI from source:
+
+```powershell
+uv run python exfat_builder.py
+```
+
+Run through the package entrypoint:
+
+```powershell
+uv run ps5-exfat-builder
+```
+
+Inspect or run AMPR routes from the core CLI:
+
+```powershell
+uv run ps5-exfat-builder-core ampr-dry-run --source game --target out.ampr --tool C:\Tools\Lazy_AMPR --performance-preset max
+uv run ps5-exfat-builder-core ampr-convert --source game --target out.ampr --tool C:\Tools\Lazy_AMPR --performance-preset max --worker-count 16
+```
+
+Build the Windows executable:
+
+```powershell
+uv sync --group build
+.\build.bat
+```
+
+Architecture notes for adding new formats live in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ------------------------------------------------------------------------
 

@@ -1,0 +1,30 @@
+[project]
+name = "ps5-exfat-builder"
+version = "3.6.4"
+description = "Windows Tkinter toolkit for building, editing, and managing PS5 exFAT images."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = { text = "See repository license" }
+dependencies = [
+    "mkpfs==0.0.8",
+    "pillow>=11.0",
+    "psutil>=6.0",
+    "tkinterdnd2>=0.4",
+    "tkinterweb>=4.0",
+]
+
+[project.scripts]
+ps5-exfat-builder = "ps5_exfat_builder.app:main"
+ps5-exfat-builder-core = "ps5_exfat_builder.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ps5_exfat_builder"]

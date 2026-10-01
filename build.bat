@@ -1,6 +1,22 @@
 @echo off
-echo Installing dependencies...
-py -3.11 -m pip install --upgrade pyinstaller pillow tkinterdnd2 psutil mkpfs==0.0.8
+setlocal
+
+where uv >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: uv is not installed or not on PATH.
+    echo Install uv first: https://docs.astral.sh/uv/getting-started/installation/
+    pause
+    exit /b 1
+)
+
+echo Syncing Python 3.14 environment with uv...
+uv sync --group build
+if errorlevel 1 (
+    echo.
+    echo Dependency sync failed.
+    pause
+    exit /b 1
+)
 echo.
 
 if not exist "controller.ico" (
@@ -27,7 +43,7 @@ if not exist "ui\" (
 )
 
 echo Building exFAT Image Builder.exe (Full version)...
-py -3.11 -m PyInstaller --onefile --windowed --clean --noconfirm ^
+uv run pyinstaller --onefile --windowed --clean --noconfirm ^
     --name "exFAT Image Builder" ^
     %ICON_ARG% ^
     --hidden-import PIL._tkinter_finder ^
@@ -64,7 +80,7 @@ echo.
 
 if exist "exfat_builder_lite.py" (
     echo Building exFAT Image Builder Lite.exe...
-    py -3.11 -m PyInstaller --onefile --windowed --clean --noconfirm ^
+    uv run pyinstaller --onefile --windowed --clean --noconfirm ^
         --name "exFAT Image Builder Lite" ^
         %ICON_ARG% ^
         --hidden-import PIL._tkinter_finder ^

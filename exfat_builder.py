@@ -13,6 +13,20 @@ import re
 import struct
 import json
 
+from ps5_exfat_builder.domain.game_scan import (
+    build_exfat_name as _core_build_exfat_name,
+    find_meta_file as _core_find_meta_file,
+    find_sfo as _core_find_sfo,
+    get_game_info as _core_get_game_info,
+    parse_nptitle_dat as _core_parse_nptitle_dat,
+    parse_param_json as _core_parse_param_json,
+    parse_sfo as _core_parse_sfo,
+    sanitize_filename as _core_sanitize_filename,
+)
+from ps5_exfat_builder.integrations.osfmount import (
+    find_osfmount as _core_find_osfmount,
+)
+
 # ── tkinterdnd2 — optional, enables drag & drop of folders ──
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -134,105 +148,22 @@ def save_settings(data):
 
 # ── SFO Parser ───────────────────────────────────────────────────────────────
 def parse_sfo(path):
-    try:
-        with open(path, 'rb') as f:
-            data = f.read()
-        if len(data) < 20:
-            return {}
-        magic, version, key_table_offset, data_table_offset, num_entries = \
-            struct.unpack_from('<IIIII', data, 0)
-        if magic != 0x46535000:
-            return {}
-        results = {}
-        for i in range(num_entries):
-            entry_offset = 20 + i * 16
-            if entry_offset + 16 > len(data):
-                break
-            key_off, data_fmt, data_len, data_max_len, data_off = \
-                struct.unpack_from('<HHIII', data, entry_offset)
-            key_start = key_table_offset + key_off
-            key_end   = data.index(b'\x00', key_start)
-            key = data[key_start:key_end].decode('utf-8', errors='replace')
-            val_start = data_table_offset + data_off
-            if data_fmt == 0x0204:
-                val = data[val_start:val_start+data_len].rstrip(b'\x00').decode('utf-8', errors='replace')
-            elif data_fmt == 0x0404:
-                val = struct.unpack_from('<I', data, val_start)[0]
-            else:
-                val = data[val_start:val_start+data_len]
-            results[key] = val
-        return results
-    except Exception:
-        return {}
+    return _core_parse_sfo(path)
 
 def find_meta_file(folder, names):
-    """Search for any of the given filenames within folder up to 3 levels deep."""
-    folder = os.path.normpath(folder)
-    # Fast-path: root and sce_sys
-    for sub in ['', 'sce_sys']:
-        for name in names:
-            p = os.path.join(folder, sub, name) if sub else os.path.join(folder, name)
-            if os.path.isfile(p):
-                return p
-    # Walk
-    try:
-        for root, dirs, files in os.walk(folder):
-            rel = os.path.relpath(root, folder)
-            depth = 0 if rel == '.' else rel.count(os.sep) + 1
-            if depth > 5:
-                dirs[:] = []
-                continue
-            lower_files = [f.lower() for f in files]
-            for name in names:
-                if name.lower() in lower_files:
-                    idx = lower_files.index(name.lower())
-                    return os.path.join(root, files[idx])
-    except Exception:
-        pass
-    return None
+    return _core_find_meta_file(folder, names)
 
 def find_sfo(folder):
-    return find_meta_file(folder, ['param.sfo'])
+    return _core_find_sfo(folder)
 
 def parse_param_json(path):
-    """Parse param.json used by some PS5 extraction tools instead of param.sfo."""
-    try:
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
-            data = json.load(f)
-        title_id = data.get('titleId', '')
-        version  = data.get('version') or data.get('masterVersion') or ''
-        # Title is nested under localizedParameters
-        title = ''
-        lp = data.get('localizedParameters', {})
-        if lp:
-            default_lang = lp.get('defaultLanguage', 'en-US')
-            for lang in [default_lang, 'en-US', 'en-GB']:
-                t = lp.get(lang, {}).get('titleName', '')
-                if t:
-                    title = t
-                    break
-            if not title:
-                # Try first available language
-                for lang, val in lp.items():
-                    if isinstance(val, dict) and val.get('titleName'):
-                        title = val['titleName']
-                        break
-        # Some formats put title at top level
-        if not title:
-            title = data.get('titleName', '') or data.get('name', '')
-        return title.strip(), str(title_id).strip(), str(version).strip()
-    except Exception:
-        return '', '', ''
+    return _core_parse_param_json(path)
 
 def parse_nptitle_dat(path):
-    """nptitle.dat is plain text containing just the game title on the first line."""
-    try:
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
-            return f.readline().strip()
-    except Exception:
-        return ''
+    return _core_parse_nptitle_dat(path)
 
 def sanitize_filename(name):
+    return _core_sanitize_filename(name)
     """Clean a game title so it's safe as a Windows filename, a cmd.exe
     argument, an exFAT volume label, and a PS5-readable filename.
 
@@ -302,6 +233,7 @@ def sanitize_filename(name):
     return name or 'game'
 
 def get_game_info(folder):
+    return _core_get_game_info(folder)
     folder = os.path.normpath(folder)
     title, title_id, version = '', '', ''
 
@@ -369,6 +301,7 @@ def get_game_info(folder):
 
 
 def build_exfat_name(title, title_id, version):
+    return _core_build_exfat_name(title, title_id, version)
     # Format: "PPSA##### Game Title (01.000.000).exfat"
     # Always include PPSA ID + title + version if available
     parts = []
@@ -3780,6 +3713,7 @@ class ExFATBuilder(_TK_BASE):
         self._tab_help_frame    = tk.Frame(self, bg=BG)
         # Step 42 (v2.5.6): Convert tab frame
         self._tab_convert_frame = tk.Frame(self, bg=BG)
+        self._tab_ampr_frame    = tk.Frame(self, bg=BG)
         # About tab frame
         self._tab_about_frame   = tk.Frame(self, bg=BG)
         # v3.6.3: dedicated Report Issue / support-center page (was a modal)
@@ -3849,6 +3783,8 @@ class ExFATBuilder(_TK_BASE):
                                label='Help',        group='app',   icon='\u2753',     top_level=False),
             'convert':   dict(frame=self._tab_convert_frame, button=None,
                                label='Convert',     group='tools', icon='\U0001f504', top_level=True),
+            'ampr':      dict(frame=self._tab_ampr_frame,    button=None,
+                               label='AMPR',        group='tools', icon='A',          top_level=True),
             'about':     dict(frame=self._tab_about_frame,   button=None,
                                label='Credits',     group='app',   icon='\u2139',     top_level=True),
             'report':    dict(frame=self._tab_report_frame,  button=None,
@@ -3938,6 +3874,9 @@ class ExFATBuilder(_TK_BASE):
             'convert':        (self._tab_convert_frame,
                                lambda: self._build_convert_tab(
                                    self._tab_convert_frame)),
+            'ampr':           (self._tab_ampr_frame,
+                               lambda: self._build_ampr_tab(
+                                   self._tab_ampr_frame)),
             'about':          (self._tab_about_frame,
                                lambda: self._build_about_tab(
                                    self._tab_about_frame)),
@@ -4225,6 +4164,10 @@ class ExFATBuilder(_TK_BASE):
         # Step 42 (v2.5.6): Convert tab — exFAT \u2194 ffpkg conversions.
         from ui.tab_convert import build_convert_tab
         build_convert_tab(parent, self)
+
+    def _build_ampr_tab(self, parent):
+        from ui.tab_ampr import build_ampr_tab
+        build_ampr_tab(parent, self)
 
     # ── ffpkg Extract sub-tab (v2.9.0) ────────────────────────────────────────
     def _build_ffpkg_extract_pane(self, parent):
@@ -6798,6 +6741,8 @@ class ExFATBuilder(_TK_BASE):
         os.path.isfile() — hence the "Settings says installed, build
         says missing" inconsistency.
         """
+        return _core_find_osfmount(
+            (self._settings.get('osfmount_path') or '').strip())
         import os
         import shutil as _sh
 

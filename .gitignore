@@ -25,6 +25,7 @@ venv/
 env/
 ENV/
 .python-version
+!/.python-version
 
 # ── App runtime-generated files (written next to the exe / in home dir) ──
 # Per-user settings & history (these normally live in the user's home dir,
