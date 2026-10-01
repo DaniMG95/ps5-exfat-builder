@@ -38,6 +38,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
 from tkinter_theme import COLORS, FONTS
@@ -47,6 +48,7 @@ from ui.shared.hero import GameHero
 from ui.shared.scroll import attach_scroll
 from ps5_exfat_builder.domain import TransformRequest
 from ps5_exfat_builder.formats.ampr import ExfatToAmprConverter, FolderToAmprConverter
+from ps5_exfat_builder.formats.pkg import ExfatToPkgConverter, FfpfscToPkgConverter
 from ps5_exfat_builder.integrations.ampr import discover_profiles, find_tool
 from ps5_exfat_builder.integrations.osfmount import (
     OsfDismountCommand,
@@ -106,6 +108,15 @@ def build_convert_tab(parent, app):
     f2e_outdir = tk.StringVar()
     f2e_name   = tk.StringVar()
     f2e_status_var = tk.StringVar(value='Idle.')
+    pkg_src = tk.StringVar()
+    pkg_out = tk.StringVar()
+    pkg_tool = tk.StringVar()
+    pkg_sdk = tk.StringVar()
+    pkg_source_format = tk.StringVar(value='exfat')
+    pkg_verify_sha256 = tk.BooleanVar(value=False)
+    pkg_default_args = tk.StringVar(value='build')
+    pkg_extra_args = tk.StringVar()
+    pkg_status_var = tk.StringVar(value='Idle.')
     # Shared: only one conversion runs at a time.
     state = {'busy': False}
     # Back-compat alias for old code below — points at whichever card
@@ -132,16 +143,56 @@ def build_convert_tab(parent, app):
     # ── Page head with badge ──
     head = page_head(inner, '\U0001f4bf',
                      'Convert images',
-                     'Convert between .exfat and .ffpkg.')
+                     'Convert across exFAT, ffpkg, ffpfsc, AMPR and PKG routes.')
     head.pack(fill='x', padx=24, pady=(14, 12))
 
     # v3.6.3: cross-reference so users wanting a compressed .ffpfsc don't get
     # stuck here (Convert only does exFAT <-> ffpkg).
     tk.Label(inner,
-             text='Need a compressed .ffpfsc image? Use Build \u2192 PFS '
+             text='Need a compressed .ffpfsc image? Use Build \u2192 ffpfsc '
                   '\u2192 Existing Image.',
              font=FONTS['meta'], bg=COLORS['bg_1'], fg=COLORS['fg_4'],
              anchor='w').pack(fill='x', padx=24, pady=(0, 8))
+
+    coverage = tk.Frame(inner, bg=COLORS['bg_2'],
+                        highlightbackground=COLORS['border_2'],
+                        highlightthickness=1)
+    coverage.pack(fill='x', padx=24, pady=(0, 14))
+    cov_head = tk.Frame(coverage, bg=COLORS['bg_2'])
+    cov_head.pack(fill='x', padx=18, pady=(12, 8))
+    tk.Label(cov_head, text='Format coverage',
+             font=(FONTS['h3'][0], 11, 'bold'),
+             bg=COLORS['bg_2'], fg=COLORS['fg_0'],
+             anchor='w').pack(side='left')
+    tk.Label(cov_head,
+             text='folder, exfat, ffpkg, ffpfs, ffpfsc, ampr, pkg',
+             font=FONTS['mono_sm'], bg=COLORS['bg_2'],
+             fg=COLORS['fg_4'], anchor='e').pack(side='right')
+    cov_grid = tk.Frame(coverage, bg=COLORS['bg_2'])
+    cov_grid.pack(fill='x', padx=18, pady=(0, 14))
+    cov_items = (
+        ('folder', 'Build source'),
+        ('exfat', 'Build / Convert / AMPR / PKG'),
+        ('ffpkg', 'Build / Convert / AMPR'),
+        ('ffpfs', 'Extract / Edit / AMPR'),
+        ('ffpfsc', 'Build / Extract / Edit / AMPR / PKG'),
+        ('ampr', 'AMPR Studio'),
+        ('pkg', 'PKG builder / AMPR'),
+    )
+    for idx, (fmt, note) in enumerate(cov_items):
+        cov_grid.grid_columnconfigure(idx, weight=1, uniform='formats')
+        cell = tk.Frame(cov_grid, bg=COLORS['bg_3'],
+                        highlightbackground=COLORS['border_2'],
+                        highlightthickness=1)
+        cell.grid(row=0, column=idx, sticky='nsew',
+                  padx=(0 if idx == 0 else 6, 0))
+        tk.Label(cell, text=fmt, font=(FONTS['mono_sm'][0], 9, 'bold'),
+                 bg=COLORS['bg_3'], fg=COLORS['teal_hi'],
+                 anchor='w').pack(fill='x', padx=8, pady=(7, 0))
+        tk.Label(cell, text=note, font=FONTS['meta'],
+                 bg=COLORS['bg_3'], fg=COLORS['fg_4'],
+                 anchor='w', wraplength=120, justify='left').pack(
+                     fill='x', padx=8, pady=(1, 7))
 
     # Right-aligned Force Dismount button on the page head row
     def _force_dismount():
@@ -329,12 +380,20 @@ def build_convert_tab(parent, app):
                 # try to launch a concurrent run.
                 if 'f2e_btn' in state and state['f2e_btn']:
                     state['f2e_btn'].config(state='disabled')
+                if 'pkg_btn' in state and state['pkg_btn']:
+                    state['pkg_btn'].config(state='disabled')
+                if 'pkg_dry_btn' in state and state['pkg_dry_btn']:
+                    state['pkg_dry_btn'].config(state='disabled')
             else:
                 pbar.stop()
                 e2f_status_var.set(label or 'Idle.')
                 convert_btn.config(state='normal', cursor='hand2')
                 if 'f2e_btn' in state and state['f2e_btn']:
                     state['f2e_btn'].config(state='normal')
+                if 'pkg_btn' in state and state['pkg_btn']:
+                    state['pkg_btn'].config(state='normal')
+                if 'pkg_dry_btn' in state and state['pkg_dry_btn']:
+                    state['pkg_dry_btn'].config(state='normal')
         except Exception:
             pass
 
@@ -808,6 +867,10 @@ def build_convert_tab(parent, app):
                     convert_btn.config(state='disabled')
                 except Exception:
                     pass
+                if 'pkg_btn' in state and state['pkg_btn']:
+                    state['pkg_btn'].config(state='disabled')
+                if 'pkg_dry_btn' in state and state['pkg_dry_btn']:
+                    state['pkg_dry_btn'].config(state='disabled')
             else:
                 f2e_pbar.stop()
                 f2e_status_var.set(label or 'Idle.')
@@ -816,8 +879,248 @@ def build_convert_tab(parent, app):
                     convert_btn.config(state='normal')
                 except Exception:
                     pass
+                if 'pkg_btn' in state and state['pkg_btn']:
+                    state['pkg_btn'].config(state='normal')
+                if 'pkg_dry_btn' in state and state['pkg_dry_btn']:
+                    state['pkg_dry_btn'].config(state='normal')
         except Exception:
             pass
+
+    # ── PKG builder card ─────────────────────────────────────────────
+    pkg_card = tk.Frame(inner, bg=COLORS['bg_2'],
+                        highlightbackground=COLORS['border_2'],
+                        highlightthickness=1)
+    pkg_card.pack(fill='x', padx=24, pady=(0, 14))
+
+    pkg_chead = tk.Frame(pkg_card, bg=COLORS['bg_2'])
+    pkg_chead.pack(fill='x', padx=24, pady=(18, 14))
+    tk.Label(pkg_chead, text='PKG',
+             font=(FONTS['mono_sm'][0], 9, 'bold'),
+             bg=COLORS['accent_08'], fg=COLORS['accent'],
+             padx=6, pady=4).pack(side='left', padx=(0, 12))
+    _flow_chips(pkg_chead, '.exfat / .ffpfsc', '.pkg')
+
+    pkg_title_col = tk.Frame(pkg_chead, bg=COLORS['bg_2'])
+    pkg_title_col.pack(side='left', fill='x', expand=True)
+    tk.Label(pkg_title_col, text='exFAT / ffpfsc \u2192 PKG',
+             font=(FONTS['h3'][0], 12, 'bold'),
+             bg=COLORS['bg_2'], fg=COLORS['fg_0'], anchor='w'
+             ).pack(fill='x')
+    tk.Label(pkg_title_col,
+             text='Build a .pkg with an external PKG backend.',
+             font=FONTS['meta'],
+             bg=COLORS['bg_2'], fg=COLORS['fg_4'], anchor='w'
+             ).pack(fill='x', pady=(2, 0))
+
+    tk.Frame(pkg_card, bg=COLORS['border_2'], height=1).pack(fill='x')
+
+    pkg_body = tk.Frame(pkg_card, bg=COLORS['bg_2'])
+    pkg_body.pack(fill='x', padx=24, pady=(4, 18))
+
+    pkg_route_row = tk.Frame(pkg_body, bg=COLORS['bg_2'])
+    pkg_route_row.pack(fill='x', pady=(8, 0))
+    tk.Label(pkg_route_row, text='Source format',
+             font=FONTS['label'], bg=COLORS['bg_2'],
+             fg=COLORS['fg_3']).pack(side='left', padx=(0, 10))
+    ttk.Combobox(pkg_route_row, textvariable=pkg_source_format,
+                 values=('exfat', 'ffpfsc'), state='readonly',
+                 width=12).pack(side='left')
+    tk.Checkbutton(
+        pkg_route_row,
+        text='Verify SHA-256',
+        variable=pkg_verify_sha256,
+        bg=COLORS['bg_2'],
+        fg=COLORS['fg_1'],
+        selectcolor=COLORS['bg_4'],
+        activebackground=COLORS['bg_2'],
+        activeforeground=COLORS['accent'],
+        font=FONTS['body'],
+    ).pack(side='left', padx=(18, 0))
+
+    def _pkg_browse_src():
+        fmt = pkg_source_format.get()
+        filetypes = [('ffpfsc images', '*.ffpfsc'), ('All files', '*.*')] \
+            if fmt == 'ffpfsc' else [('exFAT images', '*.exfat'),
+                                     ('All files', '*.*')]
+        p = filedialog.askopenfilename(title='Select source image',
+                                       filetypes=filetypes)
+        if p:
+            pkg_src.set(p)
+
+    def _pkg_browse_out():
+        p = filedialog.asksaveasfilename(
+            title='Select output .pkg',
+            defaultextension='.pkg',
+            filetypes=[('PKG files', '*.pkg'), ('All files', '*.*')],
+        )
+        if p:
+            pkg_out.set(p)
+
+    def _pkg_browse_tool():
+        p = filedialog.askopenfilename(
+            title='Select PKG backend',
+            filetypes=[('Executables and scripts', '*.exe *.bat *.cmd *.py'),
+                       ('All files', '*.*')],
+        )
+        if p:
+            pkg_tool.set(p)
+
+    field_block(pkg_body, 'Source image',
+                var=pkg_src, on_browse=_pkg_browse_src,
+                hint='.exfat or .ffpfsc')
+    field_block(pkg_body, 'Output .pkg',
+                var=pkg_out, on_browse=_pkg_browse_out,
+                hint='destination package')
+    field_block(pkg_body, 'PKG tool',
+                var=pkg_tool, on_browse=_pkg_browse_tool,
+                hint='LibProsperoPKG/fpkg-compatible builder')
+    field_block(pkg_body, 'SDK',
+                var=pkg_sdk,
+                hint='optional SDK/version flag for the backend')
+    field_block(pkg_body, 'Default args',
+                var=pkg_default_args,
+                hint='arguments before generated --input/--output flags')
+    field_block(pkg_body, 'Extra args',
+                var=pkg_extra_args,
+                hint='arguments appended after generated flags')
+
+    def _on_pkg_src(*_a):
+        if pkg_src.get() and not pkg_out.get():
+            base = os.path.splitext(os.path.basename(pkg_src.get()))[0]
+            pkg_out.set(os.path.join(os.path.dirname(pkg_src.get()),
+                                     base + '.pkg'))
+        src_low = pkg_src.get().lower()
+        if src_low.endswith('.ffpfsc'):
+            pkg_source_format.set('ffpfsc')
+        elif src_low.endswith('.exfat'):
+            pkg_source_format.set('exfat')
+        _update_hero(pkg_src.get().strip(), pkg_source_format.get(), 'PKG')
+
+    pkg_src.trace_add('write', _on_pkg_src)
+
+    pkg_action_row = tk.Frame(pkg_body, bg=COLORS['bg_2'])
+    pkg_action_row.pack(fill='x', pady=(18, 0))
+    pkg_btn = make_themed_button(
+        pkg_action_row,
+        text='Build PKG',
+        command=lambda: _do_pkg(False),
+        kind='success',
+        icon='\u25b6',
+        font_size=10, padx=18, pady=9)
+    pkg_btn.pack(side='left')
+    pkg_dry_btn = make_themed_button(
+        pkg_action_row,
+        text='Dry run',
+        command=lambda: _do_pkg(True),
+        kind='ghost',
+        font_size=10, padx=14, pady=9)
+    pkg_dry_btn.pack(side='left', padx=(8, 0))
+    state['pkg_btn'] = pkg_btn
+    state['pkg_dry_btn'] = pkg_dry_btn
+
+    tk.Label(pkg_action_row, textvariable=pkg_status_var,
+             font=FONTS['mono_sm'],
+             bg=COLORS['bg_2'], fg=COLORS['fg_4'],
+             anchor='w').pack(side='left', padx=(16, 0))
+
+    pkg_pbar_wrap = tk.Frame(pkg_action_row, bg=COLORS['bg_2'])
+    pkg_pbar_wrap.pack(side='right', fill='x', expand=True, padx=(16, 0))
+    pkg_pbar = ttk.Progressbar(pkg_pbar_wrap, mode='indeterminate',
+                               length=200)
+    pkg_pbar.pack(fill='x')
+
+    def _set_busy_pkg(b, label=''):
+        state['busy'] = b
+        try:
+            if b:
+                pkg_pbar.start(10)
+                pkg_status_var.set(label or 'Working...')
+                pkg_btn.config(state='disabled', cursor='watch')
+                pkg_dry_btn.config(state='disabled')
+                convert_btn.config(state='disabled')
+                f2e_btn.config(state='disabled')
+            else:
+                pkg_pbar.stop()
+                pkg_status_var.set(label or 'Idle.')
+                pkg_btn.config(state='normal', cursor='hand2')
+                pkg_dry_btn.config(state='normal')
+                convert_btn.config(state='normal')
+                f2e_btn.config(state='normal')
+        except Exception:
+            pass
+
+    def _split_pkg_args(value):
+        return [part for part in value.split() if part]
+
+    def _do_pkg(dry_run):
+        if state['busy']:
+            return
+        src = pkg_src.get().strip()
+        out = pkg_out.get().strip()
+        tool = pkg_tool.get().strip()
+        fmt = pkg_source_format.get().strip()
+        if fmt not in ('exfat', 'ffpfsc'):
+            messagebox.showerror('PKG', 'Source format must be exfat or ffpfsc.')
+            return
+        if not src or not os.path.isfile(src):
+            messagebox.showerror('Source missing',
+                'Pick a valid .exfat or .ffpfsc source image.')
+            return
+        if not out:
+            messagebox.showerror('Output missing', 'Set an output .pkg path.')
+            return
+        if not out.lower().endswith('.pkg'):
+            out = out + '.pkg'
+            pkg_out.set(out)
+        if not tool:
+            messagebox.showerror('PKG tool missing',
+                'Pick the external PKG backend executable or script.')
+            return
+        if not dry_run and os.path.exists(out):
+            if not messagebox.askyesno('Overwrite',
+                    out + '\n\nalready exists. Overwrite?'):
+                return
+        converter = ExfatToPkgConverter() if fmt == 'exfat' else FfpfscToPkgConverter()
+        request = TransformRequest(
+            source=Path(src),
+            target=Path(out),
+            source_format=fmt,
+            target_format='pkg',
+            options={
+                'tool_path': tool,
+                'sdk': pkg_sdk.get().strip(),
+                'verify_sha256': pkg_verify_sha256.get(),
+                'default_args': _split_pkg_args(pkg_default_args.get()),
+                'extra_args': _split_pkg_args(pkg_extra_args.get()),
+                'dry_run': dry_run,
+            },
+        )
+        _set_busy_pkg(True, 'Preparing PKG command...' if dry_run
+                      else 'Building PKG...')
+
+        def _progress(event):
+            parent.after(0, lambda: pkg_status_var.set(event.message))
+
+        def _worker():
+            result = converter.convert(request, _progress)
+
+            def _finish():
+                _set_busy_pkg(False, 'Done.' if result.ok else 'Failed.')
+                if result.details.get('args'):
+                    _log('PKG: ' + ' '.join(str(part)
+                                            for part in result.details['args']))
+                if result.details.get('output'):
+                    _log(str(result.details['output']))
+                if result.ok:
+                    messagebox.showinfo(
+                        'PKG dry run' if dry_run else 'PKG complete',
+                        result.message if dry_run else 'Wrote:\n' + out)
+                else:
+                    messagebox.showerror('PKG failed', result.message)
+
+            parent.after(0, _finish)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ── ffpkg → exFAT worker ─────────────────────────────────────────
     def _do_ffpkg_to_exfat():

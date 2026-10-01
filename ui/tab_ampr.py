@@ -104,6 +104,45 @@ def build_ampr_tab(parent, app) -> None:
     route_status = tk.Label(route_row, text="", font=FONTS["mono_sm"], bg=COLORS["bg_2"], fg=COLORS["fg_4"])
     route_status.grid(row=1, column=3, sticky="e", padx=(16, 0))
 
+    matrix = tk.Frame(route_card.body, bg=COLORS["bg_2"])
+    matrix.pack(fill="x", pady=(18, 0))
+    tk.Label(
+        matrix,
+        text="Implemented AMPR transformations",
+        font=(FONTS["mono_sm"][0], 9, "bold"),
+        bg=COLORS["bg_2"],
+        fg=COLORS["fg_1"],
+        anchor="w",
+    ).pack(fill="x")
+    matrix_grid = tk.Frame(matrix, bg=COLORS["bg_2"])
+    matrix_grid.pack(fill="x", pady=(8, 0))
+    matrix_grid.grid_columnconfigure(0, weight=1)
+    matrix_grid.grid_columnconfigure(1, weight=1)
+
+    def _route_line(parent, text: str) -> None:
+        tk.Label(
+            parent,
+            text="  " + text + "  ",
+            font=FONTS["mono_sm"],
+            bg=COLORS["bg_3"],
+            fg=COLORS["teal_hi"],
+            anchor="w",
+            padx=8,
+            pady=4,
+            highlightbackground=COLORS["border_2"],
+            highlightthickness=1,
+        ).pack(fill="x", pady=(0, 4))
+
+    pack_col = tk.Frame(matrix_grid, bg=COLORS["bg_2"])
+    unpack_col = tk.Frame(matrix_grid, bg=COLORS["bg_2"])
+    pack_col.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+    unpack_col.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+    tk.Label(pack_col, text="Pack to AMPR", font=FONTS["label"], bg=COLORS["bg_2"], fg=COLORS["fg_3"], anchor="w").pack(fill="x", pady=(0, 6))
+    tk.Label(unpack_col, text="Unpack from AMPR", font=FONTS["label"], bg=COLORS["bg_2"], fg=COLORS["fg_3"], anchor="w").pack(fill="x", pady=(0, 6))
+    for fmt in AMPR_PEER_FORMATS:
+        _route_line(pack_col, f"{fmt} -> ampr")
+        _route_line(unpack_col, f"ampr -> {fmt}")
+
     files_card = Card(
         inner,
         title="Inputs and output",
@@ -147,8 +186,11 @@ def build_ampr_tab(parent, app) -> None:
 
     backend_card = Card(
         inner,
-        title="Backend and performance",
-        subtitle="Tune command syntax and process scheduling for heavy conversions.",
+        title="Backend and hardware performance",
+        subtitle=(
+            "Tune command syntax, worker count, high process priority and "
+            "all-CPU affinity for heavy AMPR conversions."
+        ),
         icon="*",
         with_actions=True,
     )
@@ -164,13 +206,13 @@ def build_ampr_tab(parent, app) -> None:
 
     _label("Command style", 0, 0)
     ttk.Combobox(controls, textvariable=command_style_var, values=("generic", "route-flags", "positional"), state="readonly").grid(row=1, column=0, sticky="ew", pady=(6, 12))
-    _label("Workers", 0, 1)
+    _label("CPU workers", 0, 1)
     tk.Entry(controls, textvariable=workers_var, font=FONTS["mono_sm"], bg=COLORS["field_bg"], fg=COLORS["field_fg"], relief="flat", bd=7).grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(6, 12))
     _label("Timeout seconds", 0, 2)
     tk.Entry(controls, textvariable=timeout_var, font=FONTS["mono_sm"], bg=COLORS["field_bg"], fg=COLORS["field_fg"], relief="flat", bd=7).grid(row=1, column=2, sticky="ew", padx=(12, 0), pady=(6, 12))
     tk.Checkbutton(
         controls,
-        text="Use all CPU / high priority",
+        text=f"Use all CPU / high priority ({cpu_count} threads detected)",
         variable=high_perf_var,
         bg=COLORS["bg_2"],
         fg=COLORS["fg_1"],

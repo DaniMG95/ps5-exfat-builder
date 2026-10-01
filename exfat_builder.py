@@ -3636,6 +3636,7 @@ class ExFATBuilder(_TK_BASE):
                 'library':   'Library',
                 'ps5':       'PS5',
                 'convert':   'Convert',
+                'ampr':      'AMPR',
                 'dumps':     'Dump Rename',
                 'backports': 'Backports',
                 'advanced':  'Advanced',
@@ -3656,6 +3657,7 @@ class ExFATBuilder(_TK_BASE):
             sidebar.add_item('library',   _('Library'),      icon='\U0001f4da')
             sidebar.add_item('ps5',       _('PS5'),          icon='\U0001f3ae')
             sidebar.add_item('convert',   _('Convert'),      icon='\U0001f504')
+            sidebar.add_item('ampr',      _('AMPR'),         icon='A')
             sidebar.add_item('dumps',     _('Dump Rename'),  icon='\u270f')
             # ADVANCED — power-user areas.
             sidebar.add_group(_('ADVANCED'))

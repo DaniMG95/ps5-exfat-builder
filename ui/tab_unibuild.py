@@ -22,7 +22,7 @@ from ui.shared.scroll import attach_scroll
 
 # extension + label per output type
 _TYPE_EXT = {'exfat': '.exfat', 'ffpkg': '.ffpkg', 'pfs': '.ffpfsc'}
-_TYPE_LABEL = {'exfat': 'exFAT', 'ffpkg': 'ffpkg', 'pfs': 'PFS'}
+_TYPE_LABEL = {'exfat': 'exFAT', 'ffpkg': 'ffpkg', 'pfs': 'ffpfsc'}
 
 # status -> (badge text, colour key)
 _STATUS_BADGE = {
@@ -342,9 +342,9 @@ def build_unibuild_tab(parent, app):
                         'widely supported.')
     _make_type_card(1, 'ffpkg', '\U0001f4e6', 'ffpkg', 'Package-style image',
                     tip='Package-style image format.')
-    _make_type_card(2, 'pfs', '\U0001f5dc', 'PFS',
-                    'Compressed image \u2014 smaller, slower to build',
-                    tip='Compressed image format. Smaller size, slower '
+    _make_type_card(2, 'pfs', '\U0001f5dc', 'ffpfsc',
+                    'Compressed PFS image \u2014 smaller, slower to build',
+                    tip='Compressed PFS image format. Smaller size, slower '
                         'build.')
 
     # v3.6.3: subtle beginner reassurance under the format cards.
@@ -410,7 +410,7 @@ def build_unibuild_tab(parent, app):
     # existing .exfat / .ffpkg straight into the .ffpfsc (skips the
     # intermediate build entirely — same pack step, no extraction).
     pfs_mode_frame = tk.Frame(fmt_body, bg=COLORS['bg_2'])
-    tk.Label(pfs_mode_frame, text='PFS — source:',
+    tk.Label(pfs_mode_frame, text='ffpfsc source:',
              font=FONTS['mono_sm'], bg=COLORS['bg_2'],
              fg=COLORS['fg_3']).pack(side='left', padx=(0, 10))
     for _val, _lab in (('folder', 'Game dump folder'),
@@ -565,7 +565,7 @@ def build_unibuild_tab(parent, app):
     # changes — the controls below are re-parented into apo_body but bind
     # the exact same vars/handlers as before, so the build pipeline and
     # persistence behave identically. Collapsed by default.
-    apo_state = {'open': False}
+    apo_state = {'open': True}
     apo_wrap = tk.Frame(cfg_body, bg=COLORS['bg_2'])
     apo_wrap.pack(fill='x', pady=(12, 0))
 
@@ -573,13 +573,13 @@ def build_unibuild_tab(parent, app):
                        highlightbackground=COLORS['border_2'],
                        highlightthickness=1, cursor='hand2')
     apo_hdr.pack(fill='x')
-    apo_caret = tk.Label(apo_hdr, text='\u25b8', font=FONTS['mono_sm'],
+    apo_caret = tk.Label(apo_hdr, text='\u25be', font=FONTS['mono_sm'],
                          bg=COLORS['bg_3'], fg=COLORS['accent_hi'])
     apo_caret.pack(side='left', padx=(10, 6), pady=7)
-    tk.Label(apo_hdr, text='\u2699  Advanced performance options',
+    tk.Label(apo_hdr, text='\u2699  Hardware / CPU performance',
              font=(FONTS['mono_sm'][0], 9, 'bold'),
              bg=COLORS['bg_3'], fg=COLORS['fg_1']).pack(side='left', pady=7)
-    tk.Label(apo_hdr, text='copy threads \u00b7 compression level',
+    tk.Label(apo_hdr, text='CPU threads \u00b7 compression level \u00b7 disk throughput',
              font=FONTS['mono_sm'], bg=COLORS['bg_3'],
              fg=COLORS['fg_5']).pack(side='left', padx=(8, 0), pady=7)
 
@@ -599,6 +599,7 @@ def build_unibuild_tab(parent, app):
         _w.bind('<Button-1>', _apo_toggle)
     for _child in apo_hdr.winfo_children():
         _child.bind('<Button-1>', _apo_toggle)
+    apo_body.pack(fill='x')
 
     # ── Build copy threads selector ──
     # Binds the SAME var as Advanced \u2192 Build Parameters \u2192
@@ -611,16 +612,15 @@ def build_unibuild_tab(parent, app):
     cpu_row.pack(fill='x', pady=(12, 0), padx=12)
     cpu_lcol = tk.Frame(cpu_row, bg=COLORS['bg_2'])
     cpu_lcol.pack(side='left', fill='x', expand=True)
-    tk.Label(cpu_lcol, text='Build copy threads',
+    tk.Label(cpu_lcol, text='CPU / copy threads',
              font=(FONTS['mono_sm'][0], 8, 'bold'),
              bg=COLORS['bg_2'], fg=COLORS['fg_5'], anchor='w'
              ).pack(fill='x')
     n_cores = max(1, os.cpu_count() or 1)
     tk.Label(cpu_lcol,
-             text='Controls parallel file-copy threads during exFAT/FFPKG '
-                  'build stages (robocopy /MT) \u2014 %d cores available. PFS '
-                  'compression uses a separate memory-safe worker limit '
-                  'automatically.' % n_cores,
+             text='Uses robocopy /MT for parallel copy stages. Select up to '
+                  'your logical CPU count when the source/output disks are '
+                  'fast enough. Detected hardware: %d CPU thread(s).' % n_cores,
              font=FONTS['mono_sm'],
              bg=COLORS['bg_2'], fg=COLORS['fg_5'], anchor='w',
              justify='left', wraplength=380
@@ -703,6 +703,38 @@ def build_unibuild_tab(parent, app):
         except Exception:
             pass
     clvl_box.bind('<<ComboboxSelected>>', _on_clvl_pick)
+
+    max_row = tk.Frame(apo_body, bg=COLORS['bg_2'])
+    max_row.pack(fill='x', pady=(0, 12), padx=12)
+    max_lcol = tk.Frame(max_row, bg=COLORS['bg_2'])
+    max_lcol.pack(side='left', fill='x', expand=True)
+    tk.Label(max_lcol, text='Max hardware preset',
+             font=(FONTS['mono_sm'][0], 8, 'bold'),
+             bg=COLORS['bg_2'], fg=COLORS['fg_5'], anchor='w').pack(fill='x')
+    tk.Label(max_lcol,
+             text='Sets copy threads to all detected CPU threads and switches '
+                  'PFS compression to the fastest level. Real speed still '
+                  'depends on disk throughput and the selected backend.',
+             font=FONTS['mono_sm'],
+             bg=COLORS['bg_2'], fg=COLORS['fg_5'], anchor='w',
+             justify='left', wraplength=420).pack(fill='x')
+
+    def _use_max_hardware():
+        try:
+            app._adv_threads_var.set(str(min(n_cores, 128)))
+            app._settings['pfs_compression_level'] = 1
+            app._pfs_clvl_var.set(_CLVL_LABELS['1'])
+            app._adv_clamp_threads()
+            app._save_adv_params()
+            from exfat_builder import save_settings
+            save_settings(app._settings)
+        except Exception:
+            pass
+
+    make_themed_button(
+        max_row, text='Use max hardware', command=_use_max_hardware,
+        kind='success', icon='\u25b6', font_size=9, padx=12, pady=6
+    ).pack(side='right', padx=(8, 0))
 
     # ── Collapsible: how to get the fastest builds & compression ──
     # PFS compression is frequently disk-bound, not CPU-bound: users see a
